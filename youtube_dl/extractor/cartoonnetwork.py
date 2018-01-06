@@ -11,6 +11,7 @@ from ..utils import (
     xpath_attr,
     int_or_none,
     strip_or_none,
+    str_or_none,
 )
 
 
@@ -34,11 +35,16 @@ class CartoonNetworkIE(TurnerBaseIE):
         display_id = self._match_id(url)
         webpage = self._download_webpage(url, display_id)
         id_type, video_id = re.search(r"_cnglobal\.cvp(Video|Title)Id\s*=\s*'([^']+)';", webpage).groups()
-
-        video_data = self._download_xml('http://video-api.cartoonnetwork.com/contentXML/' + video_id, video_id)
-
-        media_id = video_data.attrib['id']
-        title = xpath_text(video_data, 'headline', fatal=True)
+        # video_data = self._download_xml('http://video-api.cartoonnetwork.com/contentXML/' + video_id, video_id)
+        video_data = self._download_json(
+            'http://video-api.cartoonnetwork.com/getepisode/'+ video_id,
+            video_id, headers = {
+                'accept': 'www.cartoonnetwork.com+json; version=3',
+                'authentication': 'cngoapi',
+                })[0]
+        media_id = video_data.get('mediaid')
+        title = video_data.get('title')
+        # title = self._search_regex(r"<meta\s+property=\"og:title\"\s*content=\"(.*)\"\s*/>", webpage)
 
         streams_data = self._download_json(
             'http://medium.ngtv.io/media/%s/tv' % media_id,
@@ -57,20 +63,19 @@ class CartoonNetworkIE(TurnerBaseIE):
                     m3u8_url, media_id, {
                         'url': url,
                         'site_name': 'CartoonNetwork',
-                        'auth_required': self._search_regex(
-                            r'_cnglobal\.cvpFullOrPreviewAuth\s*=\s*(true|false);',
-                            webpage, 'auth required', default='false') == 'true',
+                        'auth_required': video_data.get('authtype') == 'auth',
                     })
             m3u8_formats = self._extract_m3u8_formats(
-                m3u8_url, media_id, 'mp4', m3u8_id='hls', fatal=False)
+                m3u8_url, media_id, 'mp4', 'm3u8_native', m3u8_id='hls', fatal=False)
             if '?hdnea=' in m3u8_url:
                 for f in m3u8_formats:
                     f['_seekable'] = False
             formats.extend(m3u8_formats)
 
-            duration = float_or_none(stream_data.get('totalRuntime') or
-                parse_duration(xpath_text(video_data, 'length') or
-                xpath_text(video_data, 'trt')))
+            # duration = float_or_none(stream_data.get('totalRuntime') or
+            #     parse_duration(xpath_text(video_data, 'length') or
+            #     xpath_text(video_data, 'trt')))
+            duration = float_or_none(stream_data.get('totalRuntime') or video_data.get('duration'))
 
             if not chapters:
                 for chapter in stream_data.get('contentSegments', []):
@@ -84,24 +89,24 @@ class CartoonNetworkIE(TurnerBaseIE):
                     })
         self._sort_formats(formats)
 
-        thumbnails = [{
-            'id': image.get('cut'),
-            'url': image.text,
-            'width': int_or_none(image.get('width')),
-            'height': int_or_none(image.get('height')),
-        } for image in video_data.findall('images/image')]
+        # thumbnails = [{
+        #     'id': image.get('cut'),
+        #     'url': image.text,
+        #     'width': int_or_none(image.get('width')),
+        #     'height': int_or_none(image.get('height')),
+        # } for image in video_data.findall('images/image')]
 
         return {
             'id': media_id,
-            'title': title,
-            'description': strip_or_none(xpath_text(video_data, 'description')),
+            'title': str_or_none(title),
+            'description': str_or_none(video_data.get('description')),
             'duration': duration,
-            'timestamp': self._extract_timestamp(video_data),
-            'upload_date': xpath_attr(video_data, 'metas', 'version'),
-            'series': xpath_text(video_data, 'showTitle'),
-            'season_number': int_or_none(xpath_text(video_data, 'seasonNumber')),
-            'episode_number': int_or_none(xpath_text(video_data, 'episodeNumber')),
+            'timestamp': float_or_none(int_or_none(video_data.get('pubdateasmilliseconds'))/1000),
+            # 'upload_date': xpath_attr(video_data, 'metas', 'version'),
+            'series': str_or_none(video_data.get('seriesname')),
+            'season_number': int_or_none(video_data.get('seasonnumber')),
+            'episode_number': int_or_none(video_data.get('episodenumber')),
             'chapters': chapters,
-            'thumbnails': thumbnails,
+            'thumbnail': video_data.get('thumbnailurl'),
             'formats': formats,
         }
