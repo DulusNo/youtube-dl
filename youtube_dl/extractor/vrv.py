@@ -148,7 +148,7 @@ class VRVIE(VRVBaseIE):
             })
 
         thumbnails = []
-        for thumbnail in video_data.get('images', {}).get('thumbnails', []):
+        for thumbnail in video_data.get('images', {}).get('thumbnail', [])[0]:
             thumbnail_url = thumbnail.get('source')
             if not thumbnail_url:
                 continue
@@ -158,12 +158,21 @@ class VRVIE(VRVBaseIE):
                 'height': int_or_none(thumbnail.get('height')),
             })
 
+        chapters = []
+        for chapter in video_data.get('ad_breaks', []):
+            chapters.append(float_or_none(chapter.get('offset_ms'), 1000))
+        chapters.append(float_or_none(video_data.get('duration_ms'), 1000))
+        chapters.append(0.0)
+        chapters = sorted(set(chapters))
+        chapters = [{'start_time': a, 'end_time': b} for a, b in zip(chapters[:len(chapters)-1], chapters[1:])]
+
         return {
             'id': video_id,
             'title': title,
             'formats': formats,
             'subtitles': subtitles,
             'thumbnails': thumbnails,
+            'chapters': chapters,
             'description': video_data.get('description'),
             'duration': float_or_none(video_data.get('duration_ms'), 1000),
             'uploader_id': video_data.get('channel_id'),
