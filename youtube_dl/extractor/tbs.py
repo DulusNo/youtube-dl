@@ -12,7 +12,7 @@ from ..utils import (
 
 
 class TBSIE(TurnerBaseIE):
-    _VALID_URL = r'https?://(?:www\.)?(?P<site>tbs|tntdrama)\.com/(?:movies|shows/[^/]+/(?:clips|season-\d+/episode-\d+))/(?P<id>[^/?#]+)'
+    _VALID_URL = r'https?://(?:www\.)?(?P<site>tbs|tntdrama)\.com/(?:movies|shows/[^/]+/(?:clips|season-\d+(?:/episode-\d+)?))/(?P<id>[^/?#]+)'
     _TESTS = [{
         'url': 'http://www.tntdrama.com/shows/the-alienist/clips/monster',
         'info_dict': {
@@ -58,7 +58,7 @@ class TBSIE(TurnerBaseIE):
                 continue
             if stream_data.get('playlistProtection') == 'spe':
                 m3u8_url = self._add_akamai_spe_token(
-                    'http://www.%s.com/service/token_spe' % site,
+                    'http://token.vgtf.net/token/token_spe',
                     m3u8_url, media_id, {
                         'url': url,
                         'site_name': site[:3].upper(),
@@ -106,7 +106,7 @@ class TBSIE(TurnerBaseIE):
             'timestamp': int_or_none(video_data.get('created')),
             'season_number': int_or_none(video_data.get('season')),
             'episode_number': int_or_none(video_data.get('episode')),
-            'cahpters': chapters,
+            'chapters': chapters,
             'thumbnails': thumbnails,
             'formats': formats,
         }
