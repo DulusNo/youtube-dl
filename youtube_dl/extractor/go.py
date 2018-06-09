@@ -5,10 +5,12 @@ import re
 
 from .adobepass import AdobePassIE
 from ..utils import (
+    float_or_none,
     int_or_none,
     determine_ext,
     parse_age_limit,
     urlencode_postdata,
+    unified_strdate,
     ExtractorError,
 )
 
@@ -18,6 +20,10 @@ class GoIE(AdobePassIE):
         'abc': {
             'brand': '001',
             'requestor_id': 'ABC',
+        },
+        'disneynow': {
+            'brand': '011',
+            'requestor_id': None,
         },
         'freeform': {
             'brand': '002',
@@ -36,7 +42,7 @@ class GoIE(AdobePassIE):
             'requestor_id': 'DisneyXD',
         }
     }
-    _VALID_URL = r'https?://(?:(?P<sub_domain>%s)\.)?go\.com/(?:(?:[^/]+/)*(?P<id>vdka\w+)|(?:[^/]+/)*(?P<display_id>[^/?#]+))' % '|'.join(_SITE_INFO.keys())
+    _VALID_URL = r'https?://(?:(?P<sub_domain>%s)\.)?go\.com/(?:(?:[^/]+/)*(?P<id>(?:vdka|VDKA)\w+)|(?:[^/]+/)*(?P<display_id>[^/?#]+))' % '|'.join(_SITE_INFO.keys())
     _TESTS = [{
         'url': 'http://abc.go.com/shows/designated-survivor/video/most-recent/VDKA3807643',
         'info_dict': {
@@ -96,7 +102,13 @@ class GoIE(AdobePassIE):
         video_id = video_data['id']
         title = video_data['title']
 
+        if not site_info['requestor_id']:
+            for sub_domain in ['watchdisneychannel', 'watchdisneyjunior', 'watchdisneyxd']:
+                if self._SITE_INFO[sub_domain]['brand'] == video_data.get('show', {}).get('brand'):
+                    site_info['requestor_id'] = self._SITE_INFO[sub_domain]['requestor_id']
+
         formats = []
+        chapters = []
         for asset in video_data.get('assets', {}).get('asset', []):
             asset_url = asset.get('value')
             if not asset_url:
@@ -109,7 +121,7 @@ class GoIE(AdobePassIE):
                     'video_id': video_data['id'],
                     'video_type': video_type,
                     'brand': brand,
-                    'device': '001',
+                    'device': '022',
                 }
                 if video_data.get('accesslevel') == '1':
                     requestor_id = site_info['requestor_id']
@@ -159,6 +171,18 @@ class GoIE(AdobePassIE):
                             'height': height,
                         })
                 formats.append(f)
+            if not chapters:
+                start_time = None
+                for chapter in video_data.get('cues', {}).get('cue', []):
+                    end_time = float_or_none(chapter.get('value'), 1000)
+                    if start_time is None:
+                        start_time = end_time
+                        continue
+                    chapters.append({
+                        'start_time': start_time,
+                        'end_time': end_time,
+                    })
+                    start_time = end_time
         self._sort_formats(formats)
 
         subtitles = {}
@@ -189,12 +213,14 @@ class GoIE(AdobePassIE):
             'id': video_id,
             'title': title,
             'description': video_data.get('longdescription') or video_data.get('description'),
-            'duration': int_or_none(video_data.get('duration', {}).get('value'), 1000),
+            'duration': float_or_none(video_data.get('duration', {}).get('value'), 1000),
             'age_limit': parse_age_limit(video_data.get('tvrating', {}).get('rating')),
             'episode_number': int_or_none(video_data.get('episodenumber')),
+            'release_date': unified_strdate(video_data.get('availdate')),
             'series': video_data.get('show', {}).get('title'),
             'season_number': int_or_none(video_data.get('season', {}).get('num')),
             'thumbnails': thumbnails,
             'formats': formats,
+            'chapters': chapters,
             'subtitles': subtitles,
         }
