@@ -6,7 +6,9 @@ import re
 from .turner import TurnerBaseIE
 from ..utils import (
     int_or_none,
+    float_or_none,
     strip_or_none,
+    str_or_none,
 )
 
 
@@ -87,6 +89,7 @@ class AdultSwimIE(TurnerBaseIE):
             r'AS_INITIAL_DATA(?:__)?\s*=\s*({.+?});',
             webpage, 'initial data'), display_id)
 
+        info = {}
         is_stream = show_path == 'streams'
         if is_stream:
             if not episode_path:
@@ -123,37 +126,81 @@ class AdultSwimIE(TurnerBaseIE):
                     strip_or_none(show_data.get('metadata', {}).get('description')))
 
             video_data = show_data['sluggedVideo']
+            if len(video_data['media_id']):
+                video_id = video_data['media_id']
+                info = self._extract_ngtv_info(
+                    video_id, {
+                        'url': url,
+                        'site_name': 'AdultSwim',
+                        'auth_required': video_data.get('auth'),
+                    })
             video_id = video_data['id']
 
-        info = self._extract_cvp_info(
-            'http://www.adultswim.com/videos/api/v0/assets?platform=desktop&id=' + video_id,
-            video_id, {
-                'secure': {
-                    'media_src': 'http://androidhls-secure.cdn.turner.com/adultswim/big',
-                    'tokenizer_src': 'http://www.adultswim.com/astv/mvpd/processors/services/token_ipadAdobe.do',
-                },
-            }, {
-                'url': url,
-                'site_name': 'AdultSwim',
-                'auth_required': video_data.get('auth'),
-            })
+        streams_data = self._download_json(
+            'http://www.adultswim.com/videos/api/v3/videos/' + video_id + \
+            '?fields=title,type,duration,collection_title,poster,stream,segments,title_id',
+            video_id, 'Downloading JSON with m3u8 links')['data']
+        duration = None
+        chapters = []
+        formats = []
+        subtitles = {}
+        for asset in streams_data.get('stream', {}).get('assets', []):
+            try:
+                asset_url = asset.get('url')
+            except:
+                continue
+            if asset['mime_type'] == 'application/x-mpegURL':
+                m3u8_url = asset_url
+                if 'adultswim-ott' in m3u8_url:
+                    continue # duplicated streams
+                    m3u8_url = self._add_akamai_spe_token(
+                        'http://token.vgtf.net/token/token_spe',
+                        m3u8_url, video_id, {
+                            'url': url,
+                            'site_name': 'AdultSwim',
+                            'auth_required': video_data.get('auth'),
+                        })
+                m3u8_formats = self._extract_m3u8_formats(
+                    m3u8_url, video_id, 'mp4', 'm3u8_native', m3u8_id='hls-amd', fatal=False)
+                if '?hdnea=' in m3u8_url:
+                    for f in m3u8_formats:
+                        f['_seekable'] = False
+                formats.extend(m3u8_formats)
+                if not duration:
+                    duration = float_or_none(asset.get('duration'))
+            elif asset['mime_type'] == 'text/vtt':
+                subtitles.setdefault('en-us', []).append({'url': asset_url})
+            elif 'ad_cue_points_hls' in asset_url:
+                cues = self._download_xml(
+                    asset_url, video_id, 'Downloading ad cues for chapters')
+                if len(cues) < 2:
+                    continue
+                for cue in cues:
+                    chapters.append({
+                        'start_time': float_or_none(cue.find('start').get('milliseconds'), 1000),
+                        'end_time': float_or_none(cue.find('end').get('milliseconds'), 1000)
+                    })
+        formats.extend(info.pop('formats', {}))
+        self._sort_formats(formats)
 
         info.update({
             'id': video_id,
+            'title': str_or_none(video_data.get('title')),
             'display_id': display_id,
             'description': info.get('description') or strip_or_none(video_data.get('description')),
+            'formats': formats,
         })
         if not is_stream:
             info.update({
-                'duration': info.get('duration') or int_or_none(video_data.get('duration')),
+                'duration': info.get('duration') or duration or int_or_none(video_data.get('duration')),
                 'timestamp': info.get('timestamp') or int_or_none(video_data.get('launch_date')),
                 'season_number': info.get('season_number') or int_or_none(video_data.get('season_number')),
-                'episode': info['title'],
                 'episode_number': info.get('episode_number') or int_or_none(video_data.get('episode_number')),
+                'subtitles': subtitles,
+                'chapters': info.get('chapters') or chapters,
+                'thumbnail': video_data.get('poster')
             })
 
             info['series'] = video_data.get('collection_title') or info.get('series')
-            if info['series'] and info['series'] != info['title']:
-                info['title'] = '%s - %s' % (info['series'], info['title'])
 
         return info

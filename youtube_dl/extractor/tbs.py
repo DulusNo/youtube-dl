@@ -8,6 +8,7 @@ from ..utils import (
     float_or_none,
     int_or_none,
     strip_or_none,
+    str_or_none,
 )
 
 
@@ -45,41 +46,12 @@ class TBSIE(TurnerBaseIE):
         media_id = video_data['mediaID']
         title = video_data['title']
 
-        streams_data = self._download_json(
-            'http://medium.ngtv.io/media/%s/tv' % media_id,
-            media_id)['media']['tv']
-        duration = None
-        chapters = []
-        formats = []
-        for supported_type in ('unprotected', 'bulkaes'):
-            stream_data = streams_data.get(supported_type, {})
-            m3u8_url = stream_data.get('secureUrl') or stream_data.get('url')
-            if not m3u8_url:
-                continue
-            if stream_data.get('playlistProtection') == 'spe':
-                m3u8_url = self._add_akamai_spe_token(
-                    'http://token.vgtf.net/token/token_spe',
-                    m3u8_url, media_id, {
-                        'url': url,
-                        'site_name': site[:3].upper(),
-                        'auth_required': video_data.get('authRequired') == '1',
-                    })
-            formats.extend(self._extract_m3u8_formats(
-                m3u8_url, media_id, 'mp4', m3u8_id='hls', fatal=False))
-
-            duration = float_or_none(stream_data.get('totalRuntime') or video_data.get('duration'))
-
-            if not chapters:
-                for chapter in stream_data.get('contentSegments', []):
-                    start_time = float_or_none(chapter.get('start'))
-                    duration = float_or_none(chapter.get('duration'))
-                    if start_time is None or duration is None:
-                        continue
-                    chapters.append({
-                        'start_time': start_time,
-                        'end_time': start_time + duration,
-                    })
-        self._sort_formats(formats)
+        info = self._extract_ngtv_info(
+            media_id, {
+                'url': url,
+                'site_name': site[:3].upper(),
+                'auth_required': video_data.get('authRequired') == '1',
+            })
 
         thumbnails = []
         for image_id, image in video_data.get('images', {}).items():
@@ -98,15 +70,14 @@ class TBSIE(TurnerBaseIE):
                 })
             thumbnails.append(i)
 
-        return {
-            'id': media_id,
+        info.update({
             'title': title,
             'description': strip_or_none(video_data.get('descriptionNoTags') or video_data.get('shortDescriptionNoTags')),
-            'duration': duration,
             'timestamp': int_or_none(video_data.get('created')),
             'season_number': int_or_none(video_data.get('season')),
             'episode_number': int_or_none(video_data.get('episode')),
-            'chapters': chapters,
             'thumbnails': thumbnails,
-            'formats': formats,
-        }
+            'series': str_or_none(self._search_regex(r'"partOfSeries":{.+?"name":"(.+?)".+?}', webpage, 'series')),
+        })
+
+        return info

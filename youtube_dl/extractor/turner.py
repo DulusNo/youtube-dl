@@ -8,6 +8,7 @@ from ..compat import compat_str
 from ..utils import (
     xpath_text,
     int_or_none,
+    float_or_none,
     determine_ext,
     parse_duration,
     xpath_attr,
@@ -34,7 +35,7 @@ class TurnerBaseIE(AdobePassIE):
             if ap_data.get('auth_required'):
                 query['accessToken'] = self._extract_mvpd_auth(ap_data['url'], content_id, ap_data['site_name'], ap_data['site_name'])
             auth = self._download_xml(
-                tokenizer_src, content_id, query=query)
+                tokenizer_src, content_id, 'Downloading XML with auth. token', query=query)
             error_msg = xpath_text(auth, 'error/msg')
             if error_msg:
                 raise ExtractorError(error_msg, expected=True)
@@ -187,4 +188,48 @@ class TurnerBaseIE(AdobePassIE):
             'season_number': int_or_none(xpath_text(video_data, 'seasonNumber')),
             'episode_number': int_or_none(xpath_text(video_data, 'episodeNumber')),
             'is_live': is_live,
+        }
+
+    def _extract_ngtv_info(self, media_id, ap_data={}):
+        streams_data = self._download_json(
+            'http://medium.ngtv.io/media/%s/tv' % media_id,
+            media_id, 'Downloading JSON with m3u8 links')['media']['tv']
+        duration = None
+        chapters = []
+        formats = []
+        for supported_type in ('unprotected', 'bulkaes'):
+            stream_data = streams_data.get(supported_type, {})
+            m3u8_url = stream_data.get('url') or stream_data.get('secureUrl')
+            if not m3u8_url:
+                continue
+            if stream_data.get('playlistProtection') == 'spe':
+                m3u8_url = self._add_akamai_spe_token(
+                    'http://token.vgtf.net/token/token_spe',
+                    m3u8_url, media_id, ap_data)
+            m3u8_formats = self._extract_m3u8_formats(
+                m3u8_url, media_id, 'mp4', 'm3u8_native', m3u8_id='hls-tve', fatal=False)
+            if '?hdnea=' in m3u8_url:
+                for f in m3u8_formats:
+                    f['_seekable'] = False
+            formats.extend(m3u8_formats)
+
+            duration = float_or_none(stream_data.get('totalRuntime'))
+
+            if not chapters and len(stream_data.get('contentSegments', [])) > 1:
+                for chapter in stream_data.get('contentSegments', []):
+                    start_time = float_or_none(chapter.get('start'))
+                    duration = float_or_none(chapter.get('duration'))
+                    if start_time is None or duration is None:
+                        continue
+                    chapters.append({
+                        'start_time': start_time,
+                        'end_time': start_time + duration,
+                    })
+        self._sort_formats(formats)
+
+        return {
+            'id': media_id,
+            'duration': duration,
+            'chapters': chapters,
+            'formats': formats,
         }
