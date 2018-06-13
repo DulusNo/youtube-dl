@@ -46,7 +46,7 @@ Or with [MacPorts](https://www.macports.org/):
 Alternatively, refer to the [developer instructions](#developer-instructions) for how to check out and work with the git repository. For further options, including PGP signatures, see the [youtube-dl Download Page](https://rg3.github.io/youtube-dl/download.html).
 
 # DESCRIPTION
-**youtube-dl** is a command-line program to download videos from YouTube.com and a few more sites. It requires the Python interpreter, version 2.6, 2.7, or 3.2+, and it is not platform specific. It should work on your Unix box, on Windows or on Mac OS X. It is released to the public domain, which means you can modify it, redistribute it or use it however you like.
+**youtube-dl** is a command-line program to download videos from YouTube.com and a few more sites. It requires the Python interpreter, version 2.6, 2.7, or 3.2+, and it is not platform specific. It should work on your Unix box, on Windows or on macOS. It is released to the public domain, which means you can modify it, redistribute it or use it however you like.
 
     youtube-dl [OPTIONS] URL [URL...]
 
@@ -93,8 +93,8 @@ Alternatively, refer to the [developer instructions](#developer-instructions) fo
 
 ## Network Options:
     --proxy URL                      Use the specified HTTP/HTTPS/SOCKS proxy.
-                                     To enable experimental SOCKS proxy, specify
-                                     a proper scheme. For example
+                                     To enable SOCKS proxy, specify a proper
+                                     scheme. For example
                                      socks5://127.0.0.1:1080/. Pass in an empty
                                      string (--proxy "") for direct connection
     --socket-timeout SECONDS         Time to wait before giving up, in seconds
@@ -106,16 +106,18 @@ Alternatively, refer to the [developer instructions](#developer-instructions) fo
     --geo-verification-proxy URL     Use this proxy to verify the IP address for
                                      some geo-restricted sites. The default
                                      proxy specified by --proxy (or none, if the
-                                     options is not present) is used for the
+                                     option is not present) is used for the
                                      actual downloading.
     --geo-bypass                     Bypass geographic restriction via faking
-                                     X-Forwarded-For HTTP header (experimental)
+                                     X-Forwarded-For HTTP header
     --no-geo-bypass                  Do not bypass geographic restriction via
                                      faking X-Forwarded-For HTTP header
-                                     (experimental)
     --geo-bypass-country CODE        Force bypass geographic restriction with
                                      explicitly provided two-letter ISO 3166-2
-                                     country code (experimental)
+                                     country code
+    --geo-bypass-ip-block IP_BLOCK   Force bypass geographic restriction with
+                                     explicitly provided IP block in CIDR
+                                     notation
 
 ## Video Selection:
     --playlist-start NUMBER          Playlist video to start at (default is 1)
@@ -198,10 +200,15 @@ Alternatively, refer to the [developer instructions](#developer-instructions) fo
                                      size. By default, the buffer size is
                                      automatically resized from an initial value
                                      of SIZE.
+    --http-chunk-size SIZE           Size of a chunk for chunk-based HTTP
+                                     downloading (e.g. 10485760 or 10M) (default
+                                     is disabled). May be useful for bypassing
+                                     bandwidth throttling imposed by a webserver
+                                     (experimental)
     --playlist-reverse               Download playlist videos in reverse order
     --playlist-random                Download playlist videos in random order
     --xattr-set-filesize             Set file xattribute ytdl.filesize with
-                                     expected file size (experimental)
+                                     expected file size
     --hls-prefer-native              Use the native HLS downloader instead of
                                      ffmpeg
     --hls-prefer-ffmpeg              Use ffmpeg instead of the native HLS
@@ -218,7 +225,9 @@ Alternatively, refer to the [developer instructions](#developer-instructions) fo
 
 ## Filesystem Options:
     -a, --batch-file FILE            File containing URLs to download ('-' for
-                                     stdin)
+                                     stdin), one URL per line. Lines starting
+                                     with '#', ';' or ']' are considered as
+                                     comments and ignored.
     --id                             Use only video ID in file name
     -o, --output TEMPLATE            Output filename template, see the "OUTPUT
                                      TEMPLATE" for all the info
@@ -863,7 +872,7 @@ Use the `--cookies` option, for example `--cookies /path/to/cookies/file.txt`.
 
 In order to extract cookies from browser use any conforming browser extension for exporting cookies. For example, [cookies.txt](https://chrome.google.com/webstore/detail/cookiestxt/njabckikapfpffapmjgojcnbfjonfjfg) (for Chrome) or [Export Cookies](https://addons.mozilla.org/en-US/firefox/addon/export-cookies/) (for Firefox).
 
-Note that the cookies file must be in Mozilla/Netscape format and the first line of the cookies file must be either `# HTTP Cookie File` or `# Netscape HTTP Cookie File`. Make sure you have correct [newline format](https://en.wikipedia.org/wiki/Newline) in the cookies file and convert newlines if necessary to correspond with your OS, namely `CRLF` (`\r\n`) for Windows and `LF` (`\n`) for Unix and Unix-like systems (Linux, Mac OS, etc.). `HTTP Error 400: Bad Request` when using `--cookies` is a good sign of invalid newline format.
+Note that the cookies file must be in Mozilla/Netscape format and the first line of the cookies file must be either `# HTTP Cookie File` or `# Netscape HTTP Cookie File`. Make sure you have correct [newline format](https://en.wikipedia.org/wiki/Newline) in the cookies file and convert newlines if necessary to correspond with your OS, namely `CRLF` (`\r\n`) for Windows and `LF` (`\n`) for Unix and Unix-like systems (Linux, macOS, etc.). `HTTP Error 400: Bad Request` when using `--cookies` is a good sign of invalid newline format.
 
 Passing cookies to youtube-dl is a good way to workaround login when a particular extractor does not implement it explicitly. Another use case is working around [CAPTCHA](https://en.wikipedia.org/wiki/CAPTCHA) some websites require you to solve in particular cases in order to get access (e.g. YouTube, CloudFlare).
 
