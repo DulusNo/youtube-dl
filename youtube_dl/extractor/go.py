@@ -135,7 +135,7 @@ class GoIE(AdobePassIE):
                         'adobe_requestor_id': requestor_id,
                     })
                 else:
-                    self._initialize_geo_bypass(['US'])
+                    self._initialize_geo_bypass({'countries': ['US']})
                 entitlement = self._download_json(
                     'https://api.entitlement.watchabc.go.com/vp2/ws-secure/entitlement/2020/authorize.json',
                     video_id, data=urlencode_postdata(data))
@@ -171,7 +171,7 @@ class GoIE(AdobePassIE):
                             'height': height,
                         })
                 formats.append(f)
-            if not chapters:
+            if not chapters and len(video_data.get('cues', {}).get('cue', [])) > 2:
                 start_time = None
                 for chapter in video_data.get('cues', {}).get('cue', []):
                     end_time = float_or_none(chapter.get('value'), 1000)

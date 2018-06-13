@@ -24,14 +24,17 @@ class TurnerBaseIE(AdobePassIE):
     def _extract_timestamp(self, video_data):
         return int_or_none(xpath_attr(video_data, 'dateCreated', 'uts'))
 
-    def _add_akamai_spe_token(self, tokenizer_src, video_url, content_id, ap_data):
+    def _add_akamai_spe_token(self, tokenizer_src, video_url, content_id, ap_data, custom_tokenizer_query=None):
         secure_path = self._search_regex(r'https?://[^/]+(.+/)', video_url, 'secure path') + '*'
         token = self._AKAMAI_SPE_TOKEN_CACHE.get(secure_path)
         if not token:
             query = {
                 'path': secure_path,
-                'videoId': content_id,
             }
+            if custom_tokenizer_query:
+                query.update(custom_tokenizer_query)
+            else:
+                query['videoId'] = content_id
             if ap_data.get('auth_required'):
                 query['accessToken'] = self._extract_mvpd_auth(ap_data['url'], content_id, ap_data['site_name'], ap_data['site_name'])
             auth = self._download_xml(
@@ -190,7 +193,7 @@ class TurnerBaseIE(AdobePassIE):
             'is_live': is_live,
         }
 
-    def _extract_ngtv_info(self, media_id, ap_data={}):
+    def _extract_ngtv_info(self, media_id, tokenizer_query, ap_data={}):
         streams_data = self._download_json(
             'http://medium.ngtv.io/media/%s/tv' % media_id,
             media_id, 'Downloading JSON with m3u8 links')['media']['tv']
@@ -205,9 +208,9 @@ class TurnerBaseIE(AdobePassIE):
             if stream_data.get('playlistProtection') == 'spe':
                 m3u8_url = self._add_akamai_spe_token(
                     'http://token.vgtf.net/token/token_spe',
-                    m3u8_url, media_id, ap_data)
+                    m3u8_url, media_id, ap_data, tokenizer_query)
             m3u8_formats = self._extract_m3u8_formats(
-                m3u8_url, media_id, 'mp4', 'm3u8_native', m3u8_id='hls-tve', fatal=False)
+                m3u8_url, media_id, 'mp4', 'm3u8_native', m3u8_id='hls', fatal=False)
             if '?hdnea=' in m3u8_url:
                 for f in m3u8_formats:
                     f['_seekable'] = False
@@ -218,12 +221,12 @@ class TurnerBaseIE(AdobePassIE):
             if not chapters and len(stream_data.get('contentSegments', [])) > 1:
                 for chapter in stream_data.get('contentSegments', []):
                     start_time = float_or_none(chapter.get('start'))
-                    duration = float_or_none(chapter.get('duration'))
-                    if start_time is None or duration is None:
+                    chapter_duration = float_or_none(chapter.get('duration'))
+                    if start_time is None or chapter_duration is None:
                         continue
                     chapters.append({
                         'start_time': start_time,
-                        'end_time': start_time + duration,
+                        'end_time': start_time + chapter_duration,
                     })
         self._sort_formats(formats)
 

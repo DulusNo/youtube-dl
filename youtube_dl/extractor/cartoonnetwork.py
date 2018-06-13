@@ -31,19 +31,17 @@ class CartoonNetworkIE(TurnerBaseIE):
         display_id = self._match_id(url)
         webpage = self._download_webpage(url, display_id)
         id_type, video_id = re.search(r"_cnglobal\.cvp(Video|Title)Id\s*=\s*'([^']+)';", webpage).groups()
-        # video_data = self._download_xml('http://video-api.cartoonnetwork.com/contentXML/' + video_id, video_id)
         video_data = self._download_json(
-            'http://video-api.cartoonnetwork.com/getepisode/'+ video_id,
+            'https://video-api.cartoonnetwork.com/getepisode/'+ video_id,
             video_id,'Downloading JSON with video information', headers = {
                 'accept': 'www.cartoonnetwork.com+json; version=3',
                 'authentication': 'cngoapi',
                 })[0]
         media_id = video_data.get('mediaid')
         title = video_data.get('title')
-        # title = self._search_regex(r"<meta\s+property=\"og:title\"\s*content=\"(.*)\"\s*/>", webpage)
 
         info = self._extract_ngtv_info(
-            media_id, {
+            media_id, None, {
                 'url': url,
                 'site_name': 'CartoonNetwork',
                 'auth_required': video_data.get('authtype') == 'auth',

@@ -4,6 +4,10 @@ from __future__ import unicode_literals
 import re
 
 from .turner import TurnerBaseIE
+from ..compat import (
+    compat_urllib_parse_urlparse,
+    compat_parse_qs,
+)
 from ..utils import (
     float_or_none,
     int_or_none,
@@ -39,15 +43,18 @@ class TBSIE(TurnerBaseIE):
     def _real_extract(self, url):
         site, display_id = re.match(self._VALID_URL, url).groups()
         webpage = self._download_webpage(url, display_id)
-        video_data = self._parse_json(self._search_regex(
+        drupal_settings = self._parse_json(self._search_regex(
             r'<script[^>]+?data-drupal-selector="drupal-settings-json"[^>]*?>({.+?})</script>',
-            webpage, 'drupal setting'), display_id)['turner_playlist'][0]
+            webpage, 'drupal setting'), display_id)
+        video_data = drupal_settings['turner_playlist'][0]
 
         media_id = video_data['mediaID']
         title = video_data['title']
+        tokenizer_query = compat_parse_qs(compat_urllib_parse_urlparse(
+            drupal_settings['ngtv_token_url']).query)
 
         info = self._extract_ngtv_info(
-            media_id, {
+            media_id, tokenizer_query, {
                 'url': url,
                 'site_name': site[:3].upper(),
                 'auth_required': video_data.get('authRequired') == '1',
@@ -71,13 +78,14 @@ class TBSIE(TurnerBaseIE):
             thumbnails.append(i)
 
         info.update({
+            'id': media_id,
             'title': title,
             'description': strip_or_none(video_data.get('descriptionNoTags') or video_data.get('shortDescriptionNoTags')),
+            'duration': float_or_none(video_data.get('duration')) or info.get('duration'),
             'timestamp': int_or_none(video_data.get('created')),
             'season_number': int_or_none(video_data.get('season')),
             'episode_number': int_or_none(video_data.get('episode')),
             'thumbnails': thumbnails,
             'series': str_or_none(self._search_regex(r'"partOfSeries":{.+?"name":"(.+?)".+?}', webpage, 'series')),
         })
-
         return info
