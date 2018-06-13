@@ -128,15 +128,15 @@ class AdultSwimIE(TurnerBaseIE):
             video_data = show_data['sluggedVideo']
             if len(video_data['media_id']):
                 video_id = video_data['media_id']
-                #try:
-                info = self._extract_ngtv_info(
-                    video_id, None, {
-                        'url': url,
-                        'site_name': 'AdultSwim',
-                        'auth_required': video_data.get('auth'),
-                    })
-                #except:
-                #    pass
+                try:
+                    info = self._extract_ngtv_info(
+                        video_id, None, {
+                            'url': url,
+                            'site_name': 'AdultSwim',
+                            'auth_required': video_data.get('auth'),
+                        })
+                except:
+                    pass
             video_id = video_data['id']
 
         streams_data = self._download_json(
