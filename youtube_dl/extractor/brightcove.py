@@ -564,7 +564,7 @@ class BrightcoveNewIE(AdobePassIE):
 
         return entries
 
-    def _parse_brightcove_metadata(self, json_data, video_id):
+    def _parse_brightcove_metadata(self, json_data, video_id, headers={}):
         title = json_data['name'].strip()
 
         formats = []
@@ -638,6 +638,9 @@ class BrightcoveNewIE(AdobePassIE):
 
         self._sort_formats(formats)
 
+        for f in formats:
+            f.setdefault('http_headers', {}).update(headers)
+
         subtitles = {}
         for text_track in json_data.get('text_tracks', []):
             if text_track.get('src'):
@@ -666,7 +669,10 @@ class BrightcoveNewIE(AdobePassIE):
 
     def _real_extract(self, url):
         url, smuggled_data = unsmuggle_url(url, {})
-        self._initialize_geo_bypass(smuggled_data.get('geo_countries'))
+        self._initialize_geo_bypass({
+            'countries': smuggled_data.get('geo_countries'),
+            'ip_blocks': smuggled_data.get('geo_ip_blocks'),
+        })
 
         account_id, player_id, embed, video_id = re.match(self._VALID_URL, url).groups()
 
@@ -690,10 +696,17 @@ class BrightcoveNewIE(AdobePassIE):
                 webpage, 'policy key', group='pk')
 
         api_url = 'https://edge.api.brightcove.com/playback/v1/accounts/%s/videos/%s' % (account_id, video_id)
-        try:
-            json_data = self._download_json(api_url, video_id, headers={
-                'Accept': 'application/json;pk=%s' % policy_key
+        headers = {
+            'Accept': 'application/json;pk=%s' % policy_key,
+        }
+        referrer = smuggled_data.get('referrer')
+        if referrer:
+            headers.update({
+                'Referer': referrer,
+                'Origin': re.search(r'https?://[^/]+', referrer).group(0),
             })
+        try:
+            json_data = self._download_json(api_url, video_id, headers=headers)
         except ExtractorError as e:
             if isinstance(e.cause, compat_HTTPError) and e.cause.code == 403:
                 json_data = self._parse_json(e.cause.read().decode(), video_id)[0]
@@ -717,4 +730,5 @@ class BrightcoveNewIE(AdobePassIE):
                     'tveToken': tve_token,
                 })
 
-        return self._parse_brightcove_metadata(json_data, video_id)
+        return self._parse_brightcove_metadata(
+            json_data, video_id, headers=headers)

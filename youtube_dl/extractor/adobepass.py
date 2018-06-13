@@ -1295,6 +1295,11 @@ MSO_INFO = {
     'wcta': {
         'name': 'Winnebago Cooperative Telecom Association'
     },
+    'WOW': {
+        'name': 'WOW!',
+        'username_field': 'username',
+        'password_field': 'password',
+    },
     'wtc010': {
         'name': 'WTC'
     },
