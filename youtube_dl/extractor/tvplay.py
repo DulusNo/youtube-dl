@@ -227,14 +227,16 @@ class TVPlayIE(InfoExtractor):
 
     def _real_extract(self, url):
         url, smuggled_data = unsmuggle_url(url, {})
-        self._initialize_geo_bypass(smuggled_data.get('geo_countries'))
+        self._initialize_geo_bypass({
+            'countries': smuggled_data.get('geo_countries'),
+        })
 
         video_id = self._match_id(url)
         geo_country = self._search_regex(
             r'https?://[^/]+\.([a-z]{2})', url,
             'geo country', default=None)
         if geo_country:
-            self._initialize_geo_bypass([geo_country.upper()])
+            self._initialize_geo_bypass({'countries': [geo_country.upper()]})
         video = self._download_json(
             'http://playapi.mtgx.tv/v3/videos/%s' % video_id, video_id, 'Downloading video JSON')
 
@@ -273,6 +275,8 @@ class TVPlayIE(InfoExtractor):
                     'ext': ext,
                 }
                 if video_url.startswith('rtmp'):
+                    if smuggled_data.get('skip_rtmp'):
+                        continue
                     m = re.search(
                         r'^(?P<url>rtmp://[^/]+/(?P<app>[^/]+))/(?P<playpath>.+)$', video_url)
                     if not m:
@@ -434,6 +438,10 @@ class ViafreeIE(InfoExtractor):
         return self.url_result(
             smuggle_url(
                 'mtg:%s' % video_id,
-                {'geo_countries': [
-                    compat_urlparse.urlparse(url).netloc.rsplit('.', 1)[-1]]}),
+                {
+                    'geo_countries': [
+                        compat_urlparse.urlparse(url).netloc.rsplit('.', 1)[-1]],
+                    # rtmp host mtgfs.fplive.net for viafree is unresolvable
+                    'skip_rtmp': True,
+                }),
             ie=TVPlayIE.ie_key(), video_id=video_id)
