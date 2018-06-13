@@ -5,15 +5,19 @@ import re
 import string
 
 from .discoverygo import DiscoveryGoBaseIE
+from ..compat import (
+    compat_str,
+    compat_urllib_parse_unquote,
+)
 from ..utils import (
     ExtractorError,
-    update_url_query,
+    try_get,
 )
 from ..compat import compat_HTTPError
 
 
 class DiscoveryIE(DiscoveryGoBaseIE):
-    _VALID_URL = r'''(?x)https?://(?:www\.)?(?:
+    _VALID_URL = r'''(?x)https?://(?:www\.)?(?P<site>
             discovery|
             investigationdiscovery|
             discoverylife|
@@ -44,7 +48,7 @@ class DiscoveryIE(DiscoveryGoBaseIE):
     _GEO_BYPASS = False
 
     def _real_extract(self, url):
-        path, display_id = re.match(self._VALID_URL, url).groups()
+        site, path, display_id = re.match(self._VALID_URL, url).groups()
         webpage = self._download_webpage(url, display_id)
 
         react_data = self._parse_json(self._search_regex(
@@ -54,16 +58,27 @@ class DiscoveryIE(DiscoveryGoBaseIE):
         video = next(cb for cb in content_blocks if cb.get('type') == 'video')['content']['items'][0]
         video_id = video['id']
 
-        access_token = self._download_json(
-            'https://www.discovery.com/anonymous', display_id, query={
-                'authLink': update_url_query(
-                    'https://login.discovery.com/v1/oauth2/authorize', {
-                        'client_id': react_data['application']['apiClientId'],
-                        'redirect_uri': 'https://fusion.ddmcdn.com/app/mercury-sdk/180/redirectHandler.html',
-                        'response_type': 'anonymous',
-                        'state': 'nonce,' + ''.join([random.choice(string.ascii_letters) for _ in range(32)]),
-                    })
-            })['access_token']
+        access_token = None
+        cookies = self._get_cookies(url)
+
+        # prefer Affiliate Auth Token over Anonymous Auth Token
+        auth_storage_cookie = cookies.get('eosAf') or cookies.get('eosAn')
+        if auth_storage_cookie and auth_storage_cookie.value:
+            auth_storage = self._parse_json(compat_urllib_parse_unquote(
+                compat_urllib_parse_unquote(auth_storage_cookie.value)),
+                video_id, fatal=False) or {}
+            access_token = auth_storage.get('a') or auth_storage.get('access_token')
+
+        if not access_token:
+            access_token = self._download_json(
+                'https://www.%s.com/anonymous' % site, display_id, query={
+                    'authRel': 'authorization',
+                    'client_id': try_get(
+                        react_data, lambda x: x['application']['apiClientId'],
+                        compat_str) or '3020a40c2356a645b4b4',
+                    'nonce': ''.join([random.choice(string.ascii_letters) for _ in range(32)]),
+                    'redirectUri': 'https://fusion.ddmcdn.com/app/mercury-sdk/180/redirectHandler.html?https://www.%s.com' % site,
+                })['access_token']
 
         try:
             stream = self._download_json(
@@ -72,7 +87,7 @@ class DiscoveryIE(DiscoveryGoBaseIE):
                     'Authorization': 'Bearer ' + access_token,
                 })
         except ExtractorError as e:
-            if isinstance(e.cause, compat_HTTPError) and e.cause.code == 403:
+            if isinstance(e.cause, compat_HTTPError) and e.cause.code in (401, 403):
                 e_description = self._parse_json(
                     e.cause.read().decode(), display_id)['description']
                 if 'resource not available for country' in e_description:

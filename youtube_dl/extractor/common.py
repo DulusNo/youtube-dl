@@ -174,6 +174,8 @@ class InfoExtractor(object):
                                  width : height ratio as float.
                     * no_resume  The server does not support resuming the
                                  (HTTP or RTMP) download. Boolean.
+                    * downloader_options  A dictionary of downloader options as
+                                 described in FileDownloader
 
     url:            Final video URL.
     ext:            Video filename extension.
@@ -337,15 +339,17 @@ class InfoExtractor(object):
     _GEO_BYPASS attribute may be set to False in order to disable
     geo restriction bypass mechanisms for a particular extractor.
     Though it won't disable explicit geo restriction bypass based on
-    country code provided with geo_bypass_country. (experimental)
+    country code provided with geo_bypass_country.
 
     _GEO_COUNTRIES attribute may contain a list of presumably geo unrestricted
     countries for this extractor. One of these countries will be used by
     geo restriction bypass mechanism right away in order to bypass
-    geo restriction, of course, if the mechanism is not disabled. (experimental)
+    geo restriction, of course, if the mechanism is not disabled.
 
-    NB: both these geo attributes are experimental and may change in future
-    or be completely removed.
+    _GEO_IP_BLOCKS attribute may contain a list of presumably geo unrestricted
+    IP blocks in CIDR notation for this extractor. One of these IP blocks
+    will be used by geo restriction bypass mechanism similarly
+    to _GEO_COUNTRIES.
 
     Finally, the _WORKING attribute should be set to False for broken IEs
     in order to warn the users and skip the tests.
@@ -356,6 +360,7 @@ class InfoExtractor(object):
     _x_forwarded_for_ip = None
     _GEO_BYPASS = True
     _GEO_COUNTRIES = None
+    _GEO_IP_BLOCKS = None
     _WORKING = True
 
     def __init__(self, downloader=None):
@@ -390,12 +395,15 @@ class InfoExtractor(object):
 
     def initialize(self):
         """Initializes an instance (authentication, etc)."""
-        self._initialize_geo_bypass(self._GEO_COUNTRIES)
+        self._initialize_geo_bypass({
+            'countries': self._GEO_COUNTRIES,
+            'ip_blocks': self._GEO_IP_BLOCKS,
+        })
         if not self._ready:
             self._real_initialize()
             self._ready = True
 
-    def _initialize_geo_bypass(self, countries):
+    def _initialize_geo_bypass(self, geo_bypass_context):
         """
         Initialize geo restriction bypass mechanism.
 
@@ -406,28 +414,82 @@ class InfoExtractor(object):
         HTTP requests.
 
         This method will be used for initial geo bypass mechanism initialization
-        during the instance initialization with _GEO_COUNTRIES.
+        during the instance initialization with _GEO_COUNTRIES and
+        _GEO_IP_BLOCKS.
 
-        You may also manually call it from extractor's code if geo countries
+        You may also manually call it from extractor's code if geo bypass
         information is not available beforehand (e.g. obtained during
-        extraction) or due to some another reason.
+        extraction) or due to some other reason. In this case you should pass
+        this information in geo bypass context passed as first argument. It may
+        contain following fields:
+
+        countries:  List of geo unrestricted countries (similar
+                    to _GEO_COUNTRIES)
+        ip_blocks:  List of geo unrestricted IP blocks in CIDR notation
+                    (similar to _GEO_IP_BLOCKS)
+
         """
         if not self._x_forwarded_for_ip:
-            country_code = self._downloader.params.get('geo_bypass_country', None)
-            # If there is no explicit country for geo bypass specified and
-            # the extractor is known to be geo restricted let's fake IP
-            # as X-Forwarded-For right away.
-            if (not country_code and
-                    self._GEO_BYPASS and
-                    self._downloader.params.get('geo_bypass', True) and
-                    countries):
-                country_code = random.choice(countries)
-            if country_code:
-                self._x_forwarded_for_ip = GeoUtils.random_ipv4(country_code)
+
+            # Geo bypass mechanism is explicitly disabled by user
+            if not self._downloader.params.get('geo_bypass', True):
+                return
+
+            if not geo_bypass_context:
+                geo_bypass_context = {}
+
+            # Backward compatibility: previously _initialize_geo_bypass
+            # expected a list of countries, some 3rd party code may still use
+            # it this way
+            if isinstance(geo_bypass_context, (list, tuple)):
+                geo_bypass_context = {
+                    'countries': geo_bypass_context,
+                }
+
+            # The whole point of geo bypass mechanism is to fake IP
+            # as X-Forwarded-For HTTP header based on some IP block or
+            # country code.
+
+            # Path 1: bypassing based on IP block in CIDR notation
+
+            # Explicit IP block specified by user, use it right away
+            # regardless of whether extractor is geo bypassable or not
+            ip_block = self._downloader.params.get('geo_bypass_ip_block', None)
+
+            # Otherwise use random IP block from geo bypass context but only
+            # if extractor is known as geo bypassable
+            if not ip_block:
+                ip_blocks = geo_bypass_context.get('ip_blocks')
+                if self._GEO_BYPASS and ip_blocks:
+                    ip_block = random.choice(ip_blocks)
+
+            if ip_block:
+                self._x_forwarded_for_ip = GeoUtils.random_ipv4(ip_block)
+                if self._downloader.params.get('verbose', False):
+                    self._downloader.to_screen(
+                        '[debug] Using fake IP %s as X-Forwarded-For.'
+                        % self._x_forwarded_for_ip)
+                return
+
+            # Path 2: bypassing based on country code
+
+            # Explicit country code specified by user, use it right away
+            # regardless of whether extractor is geo bypassable or not
+            country = self._downloader.params.get('geo_bypass_country', None)
+
+            # Otherwise use random country code from geo bypass context but
+            # only if extractor is known as geo bypassable
+            if not country:
+                countries = geo_bypass_context.get('countries')
+                if self._GEO_BYPASS and countries:
+                    country = random.choice(countries)
+
+            if country:
+                self._x_forwarded_for_ip = GeoUtils.random_ipv4(country)
                 if self._downloader.params.get('verbose', False):
                     self._downloader.to_screen(
                         '[debug] Using fake IP %s (%s) as X-Forwarded-For.'
-                        % (self._x_forwarded_for_ip, country_code.upper()))
+                        % (self._x_forwarded_for_ip, country.upper()))
 
     def extract(self, url):
         """Extracts URL information and returns it in list of dicts."""
@@ -642,19 +704,31 @@ class InfoExtractor(object):
             content, _ = res
             return content
 
+    def _download_xml_handle(
+            self, url_or_request, video_id, note='Downloading XML',
+            errnote='Unable to download XML', transform_source=None,
+            fatal=True, encoding=None, data=None, headers={}, query={}):
+        """Return a tuple (xml as an xml.etree.ElementTree.Element, URL handle)"""
+        res = self._download_webpage_handle(
+            url_or_request, video_id, note, errnote, fatal=fatal,
+            encoding=encoding, data=data, headers=headers, query=query)
+        if res is False:
+            return res
+        xml_string, urlh = res
+        return self._parse_xml(
+            xml_string, video_id, transform_source=transform_source,
+            fatal=fatal), urlh
+
     def _download_xml(self, url_or_request, video_id,
                       note='Downloading XML', errnote='Unable to download XML',
                       transform_source=None, fatal=True, encoding=None,
                       data=None, headers={}, query={}):
         """Return the xml as an xml.etree.ElementTree.Element"""
-        xml_string = self._download_webpage(
-            url_or_request, video_id, note, errnote, fatal=fatal,
-            encoding=encoding, data=data, headers=headers, query=query)
-        if xml_string is False:
-            return xml_string
-        return self._parse_xml(
-            xml_string, video_id, transform_source=transform_source,
-            fatal=fatal)
+        res = self._download_xml_handle(
+            url_or_request, video_id, note=note, errnote=errnote,
+            transform_source=transform_source, fatal=fatal, encoding=encoding,
+            data=data, headers=headers, query=query)
+        return res if res is False else res[0]
 
     def _parse_xml(self, xml_string, video_id, transform_source=None, fatal=True):
         if transform_source:
@@ -668,18 +742,30 @@ class InfoExtractor(object):
             else:
                 self.report_warning(errmsg + str(ve))
 
-    def _download_json(self, url_or_request, video_id,
-                       note='Downloading JSON metadata',
-                       errnote='Unable to download JSON metadata',
-                       transform_source=None,
-                       fatal=True, encoding=None, data=None, headers={}, query={}):
-        json_string = self._download_webpage(
+    def _download_json_handle(
+            self, url_or_request, video_id, note='Downloading JSON metadata',
+            errnote='Unable to download JSON metadata', transform_source=None,
+            fatal=True, encoding=None, data=None, headers={}, query={}):
+        """Return a tuple (JSON object, URL handle)"""
+        res = self._download_webpage_handle(
             url_or_request, video_id, note, errnote, fatal=fatal,
             encoding=encoding, data=data, headers=headers, query=query)
-        if (not fatal) and json_string is False:
-            return None
+        if res is False:
+            return res
+        json_string, urlh = res
         return self._parse_json(
-            json_string, video_id, transform_source=transform_source, fatal=fatal)
+            json_string, video_id, transform_source=transform_source,
+            fatal=fatal), urlh
+
+    def _download_json(
+            self, url_or_request, video_id, note='Downloading JSON metadata',
+            errnote='Unable to download JSON metadata', transform_source=None,
+            fatal=True, encoding=None, data=None, headers={}, query={}):
+        res = self._download_json_handle(
+            url_or_request, video_id, note=note, errnote=errnote,
+            transform_source=transform_source, fatal=fatal, encoding=encoding,
+            data=data, headers=headers, query=query)
+        return res if res is False else res[0]
 
     def _parse_json(self, json_string, video_id, transform_source=None, fatal=True):
         if transform_source:
@@ -994,6 +1080,40 @@ class InfoExtractor(object):
         if isinstance(json_ld, dict):
             json_ld = [json_ld]
 
+        INTERACTION_TYPE_MAP = {
+            'CommentAction': 'comment',
+            'AgreeAction': 'like',
+            'DisagreeAction': 'dislike',
+            'LikeAction': 'like',
+            'DislikeAction': 'dislike',
+            'ListenAction': 'view',
+            'WatchAction': 'view',
+            'ViewAction': 'view',
+        }
+
+        def extract_interaction_statistic(e):
+            interaction_statistic = e.get('interactionStatistic')
+            if not isinstance(interaction_statistic, list):
+                return
+            for is_e in interaction_statistic:
+                if not isinstance(is_e, dict):
+                    continue
+                if is_e.get('@type') != 'InteractionCounter':
+                    continue
+                interaction_type = is_e.get('interactionType')
+                if not isinstance(interaction_type, compat_str):
+                    continue
+                interaction_count = int_or_none(is_e.get('userInteractionCount'))
+                if interaction_count is None:
+                    continue
+                count_kind = INTERACTION_TYPE_MAP.get(interaction_type.split('/')[-1])
+                if not count_kind:
+                    continue
+                count_key = '%s_count' % count_kind
+                if info.get(count_key) is not None:
+                    continue
+                info[count_key] = interaction_count
+
         def extract_video_object(e):
             assert e['@type'] == 'VideoObject'
             info.update({
@@ -1009,9 +1129,10 @@ class InfoExtractor(object):
                 'height': int_or_none(e.get('height')),
                 'view_count': int_or_none(e.get('interactionCount')),
             })
+            extract_interaction_statistic(e)
 
         for e in json_ld:
-            if e.get('@context') == 'http://schema.org':
+            if isinstance(e.get('@context'), compat_str) and re.match(r'^https?://schema.org/?$', e.get('@context')):
                 item_type = e.get('@type')
                 if expected_type is not None and expected_type != item_type:
                     return info
@@ -1027,7 +1148,7 @@ class InfoExtractor(object):
                     part_of_series = e.get('partOfSeries') or e.get('partOfTVSeries')
                     if isinstance(part_of_series, dict) and part_of_series.get('@type') in ('TVSeries', 'Series', 'CreativeWorkSeries'):
                         info['series'] = unescapeHTML(part_of_series.get('name'))
-                elif item_type == 'Article':
+                elif item_type in ('Article', 'NewsArticle'):
                     info.update({
                         'timestamp': parse_iso8601(e.get('datePublished')),
                         'title': unescapeHTML(e.get('headline')),
@@ -1692,22 +1813,24 @@ class InfoExtractor(object):
             })
         return subtitles
 
-    def _extract_xspf_playlist(self, playlist_url, playlist_id, fatal=True):
+    def _extract_xspf_playlist(self, xspf_url, playlist_id, fatal=True):
         xspf = self._download_xml(
-            playlist_url, playlist_id, 'Downloading xpsf playlist',
+            xspf_url, playlist_id, 'Downloading xpsf playlist',
             'Unable to download xspf manifest', fatal=fatal)
         if xspf is False:
             return []
-        return self._parse_xspf(xspf, playlist_id)
+        return self._parse_xspf(
+            xspf, playlist_id, xspf_url=xspf_url,
+            xspf_base_url=base_url(xspf_url))
 
-    def _parse_xspf(self, playlist, playlist_id):
+    def _parse_xspf(self, xspf_doc, playlist_id, xspf_url=None, xspf_base_url=None):
         NS_MAP = {
             'xspf': 'http://xspf.org/ns/0/',
             's1': 'http://static.streamone.nl/player/ns/0',
         }
 
         entries = []
-        for track in playlist.findall(xpath_with_ns('./xspf:trackList/xspf:track', NS_MAP)):
+        for track in xspf_doc.findall(xpath_with_ns('./xspf:trackList/xspf:track', NS_MAP)):
             title = xpath_text(
                 track, xpath_with_ns('./xspf:title', NS_MAP), 'title', default=playlist_id)
             description = xpath_text(
@@ -1717,12 +1840,18 @@ class InfoExtractor(object):
             duration = float_or_none(
                 xpath_text(track, xpath_with_ns('./xspf:duration', NS_MAP), 'duration'), 1000)
 
-            formats = [{
-                'url': location.text,
-                'format_id': location.get(xpath_with_ns('s1:label', NS_MAP)),
-                'width': int_or_none(location.get(xpath_with_ns('s1:width', NS_MAP))),
-                'height': int_or_none(location.get(xpath_with_ns('s1:height', NS_MAP))),
-            } for location in track.findall(xpath_with_ns('./xspf:location', NS_MAP))]
+            formats = []
+            for location in track.findall(xpath_with_ns('./xspf:location', NS_MAP)):
+                format_url = urljoin(xspf_base_url, location.text)
+                if not format_url:
+                    continue
+                formats.append({
+                    'url': format_url,
+                    'manifest_url': xspf_url,
+                    'format_id': location.get(xpath_with_ns('s1:label', NS_MAP)),
+                    'width': int_or_none(location.get(xpath_with_ns('s1:width', NS_MAP))),
+                    'height': int_or_none(location.get(xpath_with_ns('s1:height', NS_MAP))),
+                })
             self._sort_formats(formats)
 
             entries.append({
@@ -1736,18 +1865,18 @@ class InfoExtractor(object):
         return entries
 
     def _extract_mpd_formats(self, mpd_url, video_id, mpd_id=None, note=None, errnote=None, fatal=True, formats_dict={}):
-        res = self._download_webpage_handle(
+        res = self._download_xml_handle(
             mpd_url, video_id,
             note=note or 'Downloading MPD manifest',
             errnote=errnote or 'Failed to download MPD manifest',
             fatal=fatal)
         if res is False:
             return []
-        mpd, urlh = res
+        mpd_doc, urlh = res
         mpd_base_url = base_url(urlh.geturl())
 
         return self._parse_mpd_formats(
-            compat_etree_fromstring(mpd.encode('utf-8')), mpd_id, mpd_base_url,
+            mpd_doc, mpd_id=mpd_id, mpd_base_url=mpd_base_url,
             formats_dict=formats_dict, mpd_url=mpd_url)
 
     def _parse_mpd_formats(self, mpd_doc, mpd_id=None, mpd_base_url='', formats_dict={}, mpd_url=None):
@@ -2021,17 +2150,16 @@ class InfoExtractor(object):
         return formats
 
     def _extract_ism_formats(self, ism_url, video_id, ism_id=None, note=None, errnote=None, fatal=True):
-        res = self._download_webpage_handle(
+        res = self._download_xml_handle(
             ism_url, video_id,
             note=note or 'Downloading ISM manifest',
             errnote=errnote or 'Failed to download ISM manifest',
             fatal=fatal)
         if res is False:
             return []
-        ism, urlh = res
+        ism_doc, urlh = res
 
-        return self._parse_ism_formats(
-            compat_etree_fromstring(ism.encode('utf-8')), urlh.geturl(), ism_id)
+        return self._parse_ism_formats(ism_doc, urlh.geturl(), ism_id)
 
     def _parse_ism_formats(self, ism_doc, ism_url, ism_id=None):
         """
@@ -2129,8 +2257,8 @@ class InfoExtractor(object):
         return formats
 
     def _parse_html5_media_entries(self, base_url, webpage, video_id, m3u8_id=None, m3u8_entry_protocol='m3u8', mpd_id=None, preference=None):
-        def absolute_url(video_url):
-            return compat_urlparse.urljoin(base_url, video_url)
+        def absolute_url(item_url):
+            return urljoin(base_url, item_url)
 
         def parse_content_type(content_type):
             if not content_type:
@@ -2187,7 +2315,7 @@ class InfoExtractor(object):
             if src:
                 _, formats = _media_formats(src, media_type)
                 media_info['formats'].extend(formats)
-            media_info['thumbnail'] = media_attributes.get('poster')
+            media_info['thumbnail'] = absolute_url(media_attributes.get('poster'))
             if media_content:
                 for source_tag in re.findall(r'<source[^>]+>', media_content):
                     source_attributes = extract_attributes(source_tag)
@@ -2248,9 +2376,10 @@ class InfoExtractor(object):
     def _extract_wowza_formats(self, url, video_id, m3u8_entry_protocol='m3u8_native', skip_protocols=[]):
         query = compat_urlparse.urlparse(url).query
         url = re.sub(r'/(?:manifest|playlist|jwplayer)\.(?:m3u8|f4m|mpd|smil)', '', url)
-        url_base = self._search_regex(
-            r'(?:(?:https?|rtmp|rtsp):)?(//[^?]+)', url, 'format url')
-        http_base_url = '%s:%s' % ('http', url_base)
+        mobj = re.search(
+            r'(?:(?:http|rtmp|rtsp)(?P<s>s)?:)?(?P<url>//[^?]+)', url)
+        url_base = mobj.group('url')
+        http_base_url = '%s%s:%s' % ('http', mobj.group('s') or '', url_base)
         formats = []
 
         def manifest_url(manifest):
@@ -2350,7 +2479,10 @@ class InfoExtractor(object):
                 for track in tracks:
                     if not isinstance(track, dict):
                         continue
-                    if track.get('kind') != 'captions':
+                    track_kind = track.get('kind')
+                    if not track_kind or not isinstance(track_kind, compat_str):
+                        continue
+                    if track_kind.lower() not in ('captions', 'subtitles'):
                         continue
                     track_url = urljoin(base_url, track.get('file'))
                     if not track_url:
@@ -2404,7 +2536,7 @@ class InfoExtractor(object):
                 formats.extend(self._extract_m3u8_formats(
                     source_url, video_id, 'mp4', entry_protocol='m3u8_native',
                     m3u8_id=m3u8_id, fatal=False))
-            elif ext == 'mpd':
+            elif source_type == 'dash' or ext == 'mpd':
                 formats.extend(self._extract_mpd_formats(
                     source_url, video_id, mpd_id=mpd_id, fatal=False))
             elif ext == 'smil':
