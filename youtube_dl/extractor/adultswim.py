@@ -172,10 +172,15 @@ class AdultSwimIE(TurnerBaseIE):
                 if not duration:
                     duration = float_or_none(asset.get('duration'))
             elif asset['mime_type'] == 'text/vtt':
+                if not self._request_webpage(asset_url, video_id, note='Checking subtitles availability', fatal=False):
+                    continue
                 subtitles.setdefault('en-us', []).append({'url': asset_url})
             elif 'ad_cue_points_hls' in asset_url:
-                cues = self._download_xml(
-                    asset_url, video_id, 'Downloading ad cues for chapters')
+                try:
+                    cues = self._download_xml(
+                        asset_url, video_id, 'Downloading ad cues for chapters')
+                except:
+                    continue
                 if len(cues) < 2:
                     continue
                 for cue in cues:
