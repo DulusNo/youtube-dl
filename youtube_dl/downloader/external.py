@@ -200,6 +200,37 @@ class HttpieFD(ExternalFD):
         return cmd
 
 
+class StreamlinkFD(ExternalFD):
+    AVAILABLE_OPT = '-V'
+
+    @classmethod
+    def supports(cls, info_dict):
+        return info_dict['protocol'] in ('m3u8', 'm3u8_native', 'rtmp')
+
+    def _make_cmd(self, tmpfilename, info_dict):
+        cmd = ['streamlink', '--output', tmpfilename]
+        for key, val in info_dict['http_headers'].items():
+            cmd += ['--http-header', '%s=%s' % (key, val)]
+        cmd += self._option('--http-proxy', 'proxy')
+        cmd += self._option('--https-proxy', 'proxy')
+        cmd += self._valueless_option('--quiet', 'noprogress')
+        cmd += self._valueless_option('--loglevel debug', 'verbose')
+        cmd += self._valueless_option('--http-no-ssl-verify', 'nocheckcertificate')
+        cmd += self._configuration_args()
+        cmd += ['--', info_dict['url'], 'best']
+        return cmd
+
+    def _call_downloader(self, tmpfilename, info_dict):
+        cmd = [encodeArgument(a) for a in self._make_cmd(tmpfilename, info_dict)]
+
+        self._debug_cmd(cmd)
+
+        # streamlink writes the progress to stderr so don't capture it.
+        p = subprocess.Popen(cmd)
+        p.communicate()
+        return p.returncode
+
+
 class FFmpegFD(ExternalFD):
     @classmethod
     def supports(cls, info_dict):
