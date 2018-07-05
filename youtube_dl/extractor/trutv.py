@@ -5,6 +5,9 @@ import re
 
 from .turner import TurnerBaseIE
 
+from ..utils import (
+    str_or_none,
+)
 
 class TruTVIE(TurnerBaseIE):
     _VALID_URL = r'https?://(?:www\.)?trutv\.com(?:(?P<path>/shows/[^/]+/videos/[^/?#]+?)\.html|/full-episodes/[^/]+/(?P<id>\d+))'
@@ -33,15 +36,27 @@ class TruTVIE(TurnerBaseIE):
             auth_required = self._search_regex(
                 r'TTV\.TVE\.authRequired\s*=\s*(true|false);',
                 webpage, 'auth required', default='false') == 'true'
-            data_src = 'http://www.trutv.com/tveverywhere/services/cvpXML.do?titleId=' + video_id
-        return self._extract_cvp_info(
-            data_src, path, {
-                'secure': {
-                    'media_src': 'http://androidhls-secure.cdn.turner.com/trutv/big',
-                    'tokenizer_src': 'http://www.trutv.com/tveverywhere/processors/services/token_ipadAdobe.do',
-                },
-            }, {
+            media_id = self._search_regex(
+                r"TTV\.TVE\.mediaId\s*=\s*'([^']+)';",
+                webpage, 'media id', default=None)
+            title = self._search_regex(
+                r"<div\s+class\s*=\s*\"clip-title\"[^>]*>([^<]*)</div>",
+                webpage, 'title', default=video_id)
+            description = self._search_regex(
+                r"<div\s+class\s*=\s*\"clip-description\"[^>]*>([^<]*)</div>",
+                webpage, 'title', default=None)
+
+        info = self._extract_ngtv_info(
+            media_id, None, {
                 'url': url,
                 'site_name': 'truTV',
                 'auth_required': auth_required,
             })
+
+        info.update({
+            'title': str_or_none(title),
+            'description': str_or_none(description),
+        })
+
+        return info
+
