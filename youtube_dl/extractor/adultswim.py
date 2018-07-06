@@ -130,7 +130,7 @@ class AdultSwimIE(TurnerBaseIE):
                 video_id = video_data['media_id']
                 try:
                     info = self._extract_ngtv_info(
-                        video_id, None, {
+                        video_id, {'appId':'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6InRicy13ZWItMTVldWRlIiwicHJvZHVjdCI6InR2ZSIsIm5ldHdvcmsiOiJ0YnMiLCJwbGF0Zm9ybSI6IndlYiIsImlhdCI6MTUyMTU3MDE0Mn0.MWPtrJsU2E0LvPPyAd_-8vxwtRz6Fgs7P4lZlRf7HY8'}, {
                             'url': url,
                             'site_name': 'AdultSwim',
                             'auth_required': video_data.get('auth'),
@@ -188,7 +188,7 @@ class AdultSwimIE(TurnerBaseIE):
                         'start_time': float_or_none(cue.find('start').get('milliseconds'), 1000),
                         'end_time': float_or_none(cue.find('end').get('milliseconds'), 1000)
                     })
-        formats.extend(info.pop('formats', {}))
+        formats.extend(info.pop('formats', []))
         self._sort_formats(formats)
 
         info.update({
