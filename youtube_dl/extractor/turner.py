@@ -33,8 +33,8 @@ class TurnerBaseIE(AdobePassIE):
             }
             if custom_tokenizer_query:
                 query.update(custom_tokenizer_query)
-            else:
-                query['videoId'] = content_id
+            #else:
+            #    query['videoId'] = content_id
             if ap_data.get('auth_required'):
                 query['accessToken'] = self._extract_mvpd_auth(ap_data['url'], content_id, ap_data['site_name'], ap_data['site_name'])
             auth = self._download_xml(
@@ -205,9 +205,9 @@ class TurnerBaseIE(AdobePassIE):
             m3u8_url = stream_data.get('url') or stream_data.get('secureUrl')
             if not m3u8_url:
                 continue
-            if stream_data.get('playlistProtection') == 'spe':
+            if stream_data.get('playlistProtection') == 'spe' and not self._request_webpage(m3u8_url, media_id, note=False, errnote=False):
                 m3u8_url = self._add_akamai_spe_token(
-                    'http://token.vgtf.net/token/token_spe',
+                    'http://token.ngtv.io/token/token_spe',
                     m3u8_url, media_id, ap_data, tokenizer_query)
             m3u8_formats = self._extract_m3u8_formats(
                 m3u8_url, media_id, 'mp4', 'm3u8_native', m3u8_id='hls', fatal=False)
