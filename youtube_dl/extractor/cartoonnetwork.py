@@ -29,8 +29,8 @@ class CartoonNetworkIE(TurnerBaseIE):
 
     def _real_extract(self, url):
         display_id = self._match_id(url)
-        webpage = self._download_webpage(url, display_id)
-        id_type, video_id = re.search(r"_cnglobal\.cvp(Video|Title)Id\s*=\s*'([^']+)';", webpage).groups()
+        webpage = self._download_webpage(url, display_id) #_cnglobal.currentVideo.mediaId
+        id_type, video_id = re.search(r'''_cnglobal\.current(Video|Title)\.mediaId\s*=\s*['"]([^'"]+)['"];''', webpage).groups()
         video_data = self._download_json(
             'https://video-api.cartoonnetwork.com/getepisode/'+ video_id,
             video_id,'Downloading JSON with video information', headers = {
