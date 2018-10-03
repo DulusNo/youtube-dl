@@ -46,7 +46,7 @@ class TBSIE(TurnerBaseIE):
         drupal_settings = self._parse_json(self._search_regex(
             r'<script[^>]+?data-drupal-selector="drupal-settings-json"[^>]*?>({.+?})</script>',
             webpage, 'drupal setting'), display_id)
-        video_data = drupal_settings['turner_playlist'][0]
+        video_data = drupal_settings['turner_playlist'][drupal_settings.get('currentVideoIdx', 0)]
 
         media_id = video_data['mediaID']
         title = video_data['title']
