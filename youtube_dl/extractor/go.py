@@ -41,7 +41,7 @@ class GoIE(AdobePassIE):
             'brand': '009',
             'requestor_id': 'DisneyXD',
         }
-    }
+    } # http://disneynow.go.com/watch-live?brand=disney-channel,-junior,-xd
     _VALID_URL = r'https?://(?:(?P<sub_domain>%s)\.)?go\.com/(?:(?:[^/]+/)*(?P<id>(?:vdka|VDKA)\w+)|(?:[^/]+/)*(?P<display_id>[^/?#]+))' % '|'.join(_SITE_INFO.keys())
     _TESTS = [{
         'url': 'http://abc.go.com/shows/designated-survivor/video/most-recent/VDKA3807643',
@@ -70,6 +70,8 @@ class GoIE(AdobePassIE):
         'only_matching': True,
     }]
 
+    # https://api.contents.watchabc.go.com/vp2/ws/s/contents/3000/channels/011/001/-1
+
     def _extract_videos(self, brand, video_id='-1', show_id='-1'):
         display_id = video_id if video_id != '-1' else show_id
         return self._download_json(
@@ -80,7 +82,15 @@ class GoIE(AdobePassIE):
         sub_domain, video_id, display_id = re.match(self._VALID_URL, url).groups()
         site_info = self._SITE_INFO[sub_domain]
         brand = site_info['brand']
-        if not video_id:
+        video_data = None
+
+        if display_id == 'watch-live':
+            channel = self._search_regex(r'[\?&]brand=disney-([a-zA-Z]+)', url, 'channel', default='channel')
+            site_info = self._SITE_INFO['watchdisney' + channel]
+            brand = site_info['brand']
+            video_data = self._download_json(
+                'http://api.contents.watchabc.go.com/vp2/ws/s/contents/3000/channels/%s/001/-1.json' % brand, display_id)['channel'][0]
+        elif not video_id:
             webpage = self._download_webpage(url, display_id)
             video_id = self._search_regex(
                 # There may be inner quotes, e.g. data-video-id="'VDKA3609139'"
@@ -98,7 +108,7 @@ class GoIE(AdobePassIE):
                         video['url'], 'Go', video.get('id'), video.get('title')))
                 entries.reverse()
                 return self.playlist_result(entries, show_id, show_title)
-        video_data = self._extract_videos(brand, video_id)[0]
+        video_data = video_data or self._extract_videos(brand, video_id)[0]
         video_id = video_data['id']
         title = video_data['title']
 
@@ -116,7 +126,7 @@ class GoIE(AdobePassIE):
             format_id = asset.get('format')
             ext = determine_ext(asset_url)
             if ext == 'm3u8':
-                video_type = video_data.get('type')
+                video_type = video_data.get('type', 'live' if display_id == 'watch-live' else None)
                 data = {
                     'video_id': video_data['id'],
                     'video_type': video_type,
@@ -124,11 +134,13 @@ class GoIE(AdobePassIE):
                     'device': '022',
                 }
                 if video_data.get('accesslevel') == '1':
-                    requestor_id = site_info['requestor_id']
+                    requestor_id = None
+                    if site_info['requestor_id'] == 'DisneyJunior':
+                        requestor_id = 'DisneyChannels'
                     resource = self._get_mvpd_resource(
-                        requestor_id, title, video_id, None)
+                        site_info['requestor_id'], title, video_id, None)
                     auth = self._extract_mvpd_auth(
-                        url, video_id, requestor_id, resource)
+                        url, video_id, requestor_id or site_info['requestor_id'], resource)
                     data.update({
                         'token': auth,
                         'token_type': 'ap',
