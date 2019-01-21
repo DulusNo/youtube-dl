@@ -12,7 +12,7 @@ from ..utils import (
 )
 
 class TruTVIE(TurnerBaseIE):
-    _VALID_URL = r'https?://(?:www\.)?trutv\.com(?:(?P<path>/shows/[^/]+/videos/[^/?#]+?)\.html|/full-episodes/[^/]+/(?P<id>\d+))'
+    _VALID_URL = r'https?://(?:www\.)?trutv\.com/(?:shows|full-episodes)/(?P<slug>[^/]+)/(?P<id>videos|\d+)/(?P<title>[\w-]+)\.html'
     _TEST = {
         'url': 'http://www.trutv.com/shows/10-things/videos/you-wont-believe-these-sports-bets.html',
         'md5': '2cdc844f317579fed1a7251b087ff417',
@@ -26,39 +26,26 @@ class TruTVIE(TurnerBaseIE):
     }
 
     def _real_extract(self, url):
-        path, video_id = re.match(self._VALID_URL, url).groups()
+        slug, video_id, title = re.match(self._VALID_URL, url).groups()
         auth_required = False
-        webpage = self._download_webpage(url, video_id or path)
         info = {}
         initial_data = {}
-        if path:
-            data_src = 'http://www.trutv.com/video/cvp/v2/xml/content.xml?id=%s.xml' % path
-            info = self._extract_cvp_info(
-                data_src, path, {
-                    'default': {
-                        'media_src': 'http:',
-                    },
-                })
-            media_id = self._search_regex(
-                r"TTV\.video\.clip\.mediaId\s*=\s*'([^']+)';",
-                webpage, 'media id', default=None)
+        if video_id == 'videos':
+            initial_data = self._download_json(
+                'https://api.trutv.com/v2/web/series/clip/%s/%s' % (slug, title),
+                title).get('info', {})
+            video_id = initial_data.get('slug') or title
+            series = initial_data.get('series', {}).get('title')
         else:
-            raw_data = self._html_search_regex(
-                r"TTV\.TVE\.analytics\s*=\s*'([^']+)';",
-                webpage, 'initial data')
-            initial_data = self._parse_json(codecs.decode(raw_data.encode(), 'unicode_escape'), video_id)
-            video_id = initial_data.get('id') or self._search_regex(
-                r"TTV\.TVE\.episodeId\s*=\s*'([^']+)';",
-                webpage, 'video id', default=video_id)
-            auth_required = self._search_regex(
-                r'TTV\.TVE\.authRequired\s*=\s*(true|false);',
-                webpage, 'auth required', default='false') == 'true'
-            media_id = initial_data.get('mediaId') or self._search_regex(
-                r"TTV\.TVE\.mediaId\s*=\s*'([^']+)';",
-                webpage, 'media id', default=None)
-            title = initial_data.get('title') or self._search_regex(
-                r"<div\s+class\s*=\s*\"clip-title\"[^>]*>([^<]*)</div>",
-                webpage, 'title', default=video_id)
+            initial_data = self._download_json(
+                'https://api.trutv.com/v2/web/episode/%s/%s' % (slug, video_id),
+                video_id).get('episode', {})
+            video_id = initial_data.get('titleId') or video_id
+            auth_required = initial_data.get('isAuthRequired')
+            series = initial_data.get('showTitle')
+
+        media_id = initial_data.get('mediaId')
+        title = initial_data.get('title')
 
         formats = info.pop('formats', [])
         info.update(self._extract_ngtv_info(
@@ -70,13 +57,25 @@ class TruTVIE(TurnerBaseIE):
         formats.extend(info.pop('formats', []))
         self._sort_formats(formats)
 
+        thumbnails = []
+        for thumbnail in initial_data.get('images', []):
+            thumbnail_url = thumbnail.get('srcUrl')
+            if not thumbnail_url:
+                continue
+            thumbnails.append({
+                'url': thumbnail_url,
+                'width': int_or_none(thumbnail.get('width')),
+                'height': int_or_none(thumbnail.get('height')),
+            })
+
         info.update({
             'formats': formats,
             'title': info.get('title') or str_or_none(title),
             'description': info.get('description') or str_or_none(initial_data.get('description')),
-            'series': info.get('series') or str_or_none(initial_data.get('franchise')),
-            'season_number': info.get('season_number') or int_or_none(initial_data.get('seasonNumber')),
-            'episode_number': info.get('episode_number') or int_or_none(initial_data.get('episodeNumber')),
+            'series': info.get('series') or str_or_none(series),
+            'season_number': info.get('season_number') or int_or_none(initial_data.get('seasonNum')),
+            'episode_number': info.get('episode_number') or int_or_none(initial_data.get('episodeNum')),
+            'thumbnails': thumbnails,
         })
 
         return info
