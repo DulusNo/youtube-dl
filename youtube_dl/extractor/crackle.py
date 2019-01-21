@@ -4,16 +4,14 @@ from __future__ import unicode_literals, division
 import re
 
 from .common import InfoExtractor
-from ..compat import (
-    compat_str,
-    compat_HTTPError,
-)
+from ..compat import compat_HTTPError
 from ..utils import (
     determine_ext,
     float_or_none,
     int_or_none,
     parse_age_limit,
     parse_duration,
+    url_or_none,
     ExtractorError
 )
 
@@ -86,8 +84,8 @@ class CrackleIE(InfoExtractor):
             for e in media['MediaURLs']:
                 if e.get('UseDRM') is True:
                     continue
-                format_url = e.get('Path')
-                if not format_url or not isinstance(format_url, compat_str):
+                format_url = url_or_none(e.get('Path'))
+                if not format_url:
                     continue
                 ext = determine_ext(format_url)
                 if ext == 'm3u8':
@@ -124,8 +122,8 @@ class CrackleIE(InfoExtractor):
                 for cc_file in cc_files:
                     if not isinstance(cc_file, dict):
                         continue
-                    cc_url = cc_file.get('Path')
-                    if not cc_url or not isinstance(cc_url, compat_str):
+                    cc_url = url_or_none(cc_file.get('Path'))
+                    if not cc_url:
                         continue
                     lang = cc_file.get('Locale') or 'en'
                     subtitles.setdefault(lang, []).append({'url': cc_url})
@@ -142,6 +140,23 @@ class CrackleIE(InfoExtractor):
                         'width': int(mobj.group(1)),
                         'height': int(mobj.group(2)),
                     })
+
+            chapters = []
+            chaps = media.get('Chapters')
+            if isinstance(chaps, list) and len(chaps) > 1:
+                start_time = None
+                for chapter in chaps:
+                    end_time = float_or_none(chapter.get('StartTimeInMilliSeconds'), 1000) or parse_duration(chapter.get('StartTime'))
+                    if start_time is not None:
+                        chapters.append({
+                            'start_time': start_time,
+                            'end_time': end_time,
+                        })
+                    start_time = end_time
+                chapters.append({
+                    'start_time': start_time,
+                    'end_time': float_or_none(duration),
+                })
 
             return {
                 'id': video_id,
@@ -162,6 +177,7 @@ class CrackleIE(InfoExtractor):
                 'thumbnails': thumbnails,
                 'subtitles': subtitles,
                 'formats': formats,
+                'chapters': chapters,
             }
 
         raise last_e
