@@ -15,6 +15,7 @@ from ..utils import (
     update_url_query,
     ExtractorError,
     strip_or_none,
+    url_or_none,
 )
 
 
@@ -154,8 +155,8 @@ class TurnerBaseIE(AdobePassIE):
         subtitles = {}
         for source in video_data.findall('closedCaptions/source'):
             for track in source.findall('track'):
-                track_url = track.get('url')
-                if not isinstance(track_url, compat_str) or track_url.endswith('/big'):
+                track_url = url_or_none(track.get('url'))
+                if not track_url or track_url.endswith('/big'):
                     continue
                 lang = track.get('lang') or track.get('label') or 'en'
                 subtitles.setdefault(lang, []).append({
@@ -200,14 +201,16 @@ class TurnerBaseIE(AdobePassIE):
         duration = None
         chapters = []
         formats = []
+        subtitles = {}
         for supported_type in ('unprotected', 'bulkaes'):
             stream_data = streams_data.get(supported_type, {})
             m3u8_url = stream_data.get('url') or stream_data.get('secureUrl')
             if not m3u8_url:
                 continue
-            if stream_data.get('playlistProtection') == 'spe' and not self._request_webpage(m3u8_url, media_id, note=False, errnote=False):
+            if stream_data.get('playlistProtection') == 'spe': # and not self._request_webpage(m3u8_url, media_id, note=False, errnote=False):
                 m3u8_url = self._add_akamai_spe_token(
                     'http://token.ngtv.io/token/token_spe',
+                    #'http://token.vgtf.net/token/token_spe',
                     m3u8_url, media_id, ap_data, tokenizer_query)
             m3u8_formats = self._extract_m3u8_formats(
                 m3u8_url, media_id, 'mp4', 'm3u8_native', m3u8_id='hls', fatal=False)
@@ -218,7 +221,7 @@ class TurnerBaseIE(AdobePassIE):
 
             duration = float_or_none(stream_data.get('totalRuntime'))
 
-            if not chapters and len(stream_data.get('contentSegments', [])) > 1:
+            if not chapters and len(stream_data.get('contentSegments') or []) > 1:
                 for chapter in stream_data.get('contentSegments', []):
                     start_time = float_or_none(chapter.get('start'))
                     chapter_duration = float_or_none(chapter.get('duration'))
@@ -228,6 +231,13 @@ class TurnerBaseIE(AdobePassIE):
                         'start_time': start_time,
                         'end_time': start_time + chapter_duration,
                     })
+
+            for caption in stream_data.get('captions'):
+                if caption.get('type') in ['srt', 'vtt', 'ttml']:
+                    subtitles.setdefault(caption.get('language', 'en-US'), []).append({
+                        'url': caption.get('location'),
+                        'ext': caption.get('type'),
+                    })
         self._sort_formats(formats)
 
         return {
@@ -235,4 +245,5 @@ class TurnerBaseIE(AdobePassIE):
             'duration': duration,
             'chapters': chapters,
             'formats': formats,
+            'subtitles': subtitles,
         }
