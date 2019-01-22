@@ -134,9 +134,9 @@ class GoIE(AdobePassIE):
                     'device': '022',
                 }
                 if video_data.get('accesslevel') == '1':
-                    requestor_id = None
-                    if site_info['requestor_id'] == 'DisneyJunior':
-                        requestor_id = 'DisneyChannels'
+                    #requestor_id = None
+                    #if site_info['requestor_id'] == 'DisneyJunior':
+                    requestor_id = 'DisneyChannels'
                     resource = self._get_mvpd_resource(
                         site_info['requestor_id'], title, video_id, None)
                     auth = self._extract_mvpd_auth(
